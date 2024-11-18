@@ -1,14 +1,22 @@
 use std::error::Error;
 use std::io::{self, stdin, stdout, Read, Write};
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::thread;
 use std::time::Duration;
 
-use clap::Parser;
+use clap::{Parser, builder::{PossibleValuesParser, TypedValueParser}};
 use serialport::{DataBits, FlowControl, Parity, SerialPort, SerialPortBuilder, StopBits};
-use termion::raw::{IntoRawMode, RawTerminal};
+use termion::{screen::IntoAlternateScreen, raw::{IntoRawMode, RawTerminal}};
 use termion::screen::{AlternateScreen, ToMainScreen};
+
+// clap 4 PossibleValueParser builder.
+macro_rules! pvp {
+    ($t:ty, $vals:expr) => {
+        PossibleValuesParser::new($vals).map(|s| <$t>::from_str(s.as_ref()).unwrap())
+    };
+}
 
 #[derive(Debug, Parser)]
 #[clap(
@@ -27,7 +35,6 @@ Escape commands begin with <Enter> and end with one of the following sequences:
 )]
 struct SC {
     /// Set the device path to a serial port
-    #[clap(parse(from_str))]
     device: String,
 
     /// Set the baud rate to connect at
@@ -45,7 +52,7 @@ Common values: 300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400,
     #[clap(
         name = "data bits",
         default_value = "8",
-        possible_values = &["5", "6", "7", "8"],
+        value_parser = pvp!(u8, &["5", "6", "7", "8"]),
     )]
     data_bits: u8,
     /// Set the parity checking mode
@@ -53,7 +60,7 @@ Common values: 300, 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200, 230400,
         name = "parity",
         default_value = "N",
         ignore_case = true,
-        possible_values = &["N","O","E"],
+        value_parser = pvp!(String, &["N","O","E"]),
         long_help = r"Set the parity checking mode
 
 Possible values:
@@ -67,7 +74,7 @@ Possible values:
     #[clap(
         name = "stop bits",
         default_value = "1",
-        possible_values = &["1", "2"],
+        value_parser = pvp!(u8, &["1", "2"]),
     )]
     stop_bits: u8,
     /// Set the flow control mode
@@ -75,7 +82,7 @@ Possible values:
         name = "flow control",
         default_value = "N",
         ignore_case = true,
-        possible_values = &["N","H","S"],
+        value_parser = pvp!(String, &["N","H","S"]),
         long_help = r"Set the flow control mode
 
 Possible values:
@@ -136,7 +143,7 @@ fn main() {
     };
 
     let mut stdin = stdin();
-    let mut screen = AlternateScreen::from(stdout().into_raw_mode().unwrap());
+    let mut screen = stdout().into_raw_mode().unwrap().into_alternate_screen().unwrap();
 
     write_start_screen_msg(&mut screen);
 
