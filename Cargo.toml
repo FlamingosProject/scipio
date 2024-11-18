@@ -11,9 +11,9 @@ edition = "2021"
 exclude = ["aur/"]
 
 [dependencies]
-clap = { version = "3.0.10", features = ["derive"] }
-serialport = "4.0.1"
-termion = "1.5.6"
+clap = { version = "4.5.21", features = ["derive"] }
+serialport = "4.6.0"
+termion = "4.0.3"
 
 [profile.lto]
 inherits = "release"
