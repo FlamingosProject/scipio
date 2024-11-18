@@ -18,3 +18,7 @@ termion = "4.0.3"
 [profile.lto]
 inherits = "release"
 lto = "fat"
+
+[[bin]]
+name = "minipush"
+path = "src/main.rs"

@@ -2,7 +2,7 @@ use std::error::Error;
 use std::io::{self, stdin, stdout, Read, Write};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::mpsc::{channel, Receiver, TryRecvError};
+use std::sync::{atomic::{AtomicU8, Ordering::*}, mpsc::{channel, Receiver, TryRecvError}};
 use std::thread;
 use std::time::Duration;
 
@@ -94,6 +94,9 @@ Possible values:
     flow_control: String,
 
     help: bool,
+
+    /// Get the path of a binary to push up
+    binfile: Option<String>,
 }
 
 enum EscapeState {
@@ -109,13 +112,14 @@ enum NextStep {
     LoopContinue,
     LoopBreak,
     Data(Box<([u8; 512], usize)>),
+    Upload,
     None,
 }
 
 fn main() {
     let sc_args: SC = SC::parse();
 
-    let (path, port_builder) = match parse_arguments_into_serialport(&sc_args) {
+    let arg_record = match parse_arguments_into_serialport(&sc_args) {
         Ok(a) => a,
         Err(e) => {
             eprint!("Could not open serial port: {}\n\r", e);
@@ -123,7 +127,7 @@ fn main() {
         }
     };
 
-    let path = PathBuf::from(path);
+    let path = PathBuf::from(arg_record.device);
     if !path.exists() {
         eprint!("waiting for device\n\r");
         while !path.exists() {
@@ -132,7 +136,7 @@ fn main() {
     }
 
     let mut serial_port;
-    match port_builder.open() {
+    match arg_record.serial.open() {
         Ok(sp) => serial_port = sp,
         Err(err) if err.kind() == serialport::ErrorKind::Io(io::ErrorKind::NotFound) => {
             eprint!("Device not found: {}\n\r", sc_args.device);
@@ -158,10 +162,19 @@ fn main() {
         tx.send((data, n)).unwrap();
     });
 
+    let upload = arg_record.binfile.is_some();
     let mut escape_state: EscapeState = EscapeState::WaitForEnter;
     loop {
-        if let NextStep::LoopBreak = read_from_serial_port(&mut serial_port, &mut screen) {
-            break;
+        match read_from_serial_port(&mut serial_port, &mut screen, upload) {
+            NextStep::None => (),
+            NextStep::LoopBreak => break,
+            NextStep::Upload if upload => {
+                let binfile = arg_record.binfile.as_ref().unwrap();
+                upload_to_serial_port(binfile, &mut serial_port)
+                    .unwrap_or_else(|e| eprint!("upload failed: {}", e));
+                continue;
+            }
+            _ => unreachable!(),
         }
 
         let data: [u8; 512];
@@ -190,16 +203,59 @@ fn main() {
     }
 }
 
+fn upload_to_serial_port(
+    binfile: &str,
+    serial_port: &mut Box<dyn SerialPort>,
+) -> Result<(), Box<dyn Error>> {
+    let data = std::fs::read(binfile)?;
+    let ndata = data.len();
+    assert!(ndata <= u32::MAX as usize);
+    for i in (0..4).rev() {
+        let b = ((ndata >> (i * 8)) & 0xff) as u8;
+        let n = serial_port.write(&[b])?;
+        assert_eq!(1, n);
+    }
+    serial_port.write_all(&data)?;
+    Ok(())
+}
+
 fn read_from_serial_port(
     serial_port: &mut Box<dyn SerialPort>,
     screen: &mut AlternateScreen<RawTerminal<io::Stdout>>,
+    upload: bool,
 ) -> NextStep {
+    static ETX_COUNT: AtomicU8 = AtomicU8::new(0);
     let mut serial_bytes = [0; 512];
     match serial_port.read(&mut serial_bytes[..]) {
         Ok(n) => {
-            if n > 0 {
+            if upload {
+                let mut front = 0;
+                let mut etx_count = ETX_COUNT.load(Acquire);
+                for (i, &b) in serial_bytes[..n].iter().enumerate() {
+                    if b == 3 {
+                        etx_count += 1;
+                        screen.write_all(&serial_bytes[front..i]).unwrap();
+                        front = i + 1;
+                        if etx_count >= 3 {
+                            break;
+                        }
+                    } else {
+                        etx_count = 0;
+                    }
+                };
+                if etx_count >= 3 {
+                    ETX_COUNT.store(0, Release);
+                    return NextStep::Upload;
+                } else {
+                    ETX_COUNT.store(etx_count, Release);
+                    screen.write_all(&serial_bytes[front..n]).unwrap();
+                    screen.flush().unwrap();
+                    return NextStep::None;
+                }
+            } else {
                 screen.write_all(&serial_bytes[..n]).unwrap();
                 screen.flush().unwrap();
+                return NextStep::None;
             }
         }
         Err(err) if err.kind() == io::ErrorKind::TimedOut => {}
@@ -212,7 +268,7 @@ fn read_from_serial_port(
             return NextStep::LoopBreak;
         }
     }
-    NextStep::None
+    unreachable!()
 }
 
 fn read_from_stdin_thread(rx: &Receiver<([u8; 512], usize)>) -> NextStep {
@@ -273,7 +329,13 @@ fn write_to_serial_port(serial_port: &mut Box<dyn SerialPort>, data: &[u8]) -> N
     NextStep::None
 }
 
-fn parse_arguments_into_serialport(sc_args: &SC) -> Result<(String, SerialPortBuilder), Box<dyn Error>> {
+struct ArgRecord {
+    binfile: Option<String>,
+    device: String,
+    serial: SerialPortBuilder,
+}
+
+fn parse_arguments_into_serialport(sc_args: &SC) -> Result<ArgRecord, Box<dyn Error>> {
     fn match_data_bits(data_bits: u8) -> Result<DataBits, &'static str> {
         match data_bits {
             8 => Ok(DataBits::Eight),
@@ -320,7 +382,12 @@ fn parse_arguments_into_serialport(sc_args: &SC) -> Result<(String, SerialPortBu
         .stop_bits(stop_bits)
         .flow_control(flow_control)
         .timeout(timeout);
-    Ok((path.into(), p))
+    let arg_record = ArgRecord {
+        binfile: sc_args.binfile.clone(),
+        device: sc_args.device.clone(),
+        serial: p,
+    };
+    Ok(arg_record)
 }
 
 fn write_start_screen_msg(screen: &mut impl Write) {
