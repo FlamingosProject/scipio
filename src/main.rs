@@ -171,7 +171,7 @@ fn main() {
             NextStep::Upload if upload => {
                 let binfile = arg_record.binfile.as_ref().unwrap();
                 upload_to_serial_port(binfile, &mut serial_port)
-                    .unwrap_or_else(|e| eprint!("upload failed: {}", e));
+                    .unwrap_or_else(|e| eprint!("{}upload failed: {}", ToMainScreen, e));
                 continue;
             }
             _ => unreachable!(),
@@ -234,29 +234,23 @@ fn read_from_serial_port(
                 for (i, &b) in serial_bytes[..n].iter().enumerate() {
                     if b == 3 {
                         etx_count += 1;
+                        if etx_count >= 3 {
+                            ETX_COUNT.store(0, Release);
+                            return NextStep::Upload;
+                        }
                         screen.write_all(&serial_bytes[front..i]).unwrap();
                         front = i + 1;
-                        if etx_count >= 3 {
-                            break;
-                        }
                     } else {
                         etx_count = 0;
                     }
                 };
-                if etx_count >= 3 {
-                    ETX_COUNT.store(0, Release);
-                    return NextStep::Upload;
-                } else {
-                    ETX_COUNT.store(etx_count, Release);
-                    screen.write_all(&serial_bytes[front..n]).unwrap();
-                    screen.flush().unwrap();
-                    return NextStep::None;
-                }
+                ETX_COUNT.store(etx_count, Release);
+                screen.write_all(&serial_bytes[front..n]).unwrap();
             } else {
                 screen.write_all(&serial_bytes[..n]).unwrap();
-                screen.flush().unwrap();
-                return NextStep::None;
             }
+            screen.flush().unwrap();
+            return NextStep::None;
         }
         Err(err) if err.kind() == io::ErrorKind::TimedOut => {}
         Err(err) if err.kind() == io::ErrorKind::BrokenPipe => {
