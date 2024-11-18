@@ -1,4 +1,6 @@
+use std::error::Error;
 use std::io::{self, stdin, stdout, Read, Write};
+use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, TryRecvError};
 use std::thread;
 use std::time::Duration;
@@ -104,7 +106,22 @@ enum NextStep {
 fn main() {
     let sc_args: SC = SC::parse();
 
-    let port_builder: SerialPortBuilder = parse_arguments_into_serialport(&sc_args);
+    let (path, port_builder) = match parse_arguments_into_serialport(&sc_args) {
+        Ok(a) => a,
+        Err(e) => {
+            eprint!("Could not open serial port: {}\n\r", e);
+            return;
+        }
+    };
+
+    let path = PathBuf::from(path);
+    if !path.exists() {
+        eprint!("waiting for device\n\r");
+        while !path.exists() {
+            thread::sleep(Duration::from_millis(100u64));
+        }
+    }
+
     let mut serial_port;
     match port_builder.open() {
         Ok(sp) => serial_port = sp,
@@ -247,53 +264,54 @@ fn write_to_serial_port(serial_port: &mut Box<dyn SerialPort>, data: &[u8]) -> N
     NextStep::None
 }
 
-fn parse_arguments_into_serialport(sc_args: &SC) -> SerialPortBuilder {
-    fn match_data_bits(data_bits: u8) -> DataBits {
+fn parse_arguments_into_serialport(sc_args: &SC) -> Result<(String, SerialPortBuilder), Box<dyn Error>> {
+    fn match_data_bits(data_bits: u8) -> Result<DataBits, &'static str> {
         match data_bits {
-            8 => DataBits::Eight,
-            7 => DataBits::Seven,
-            6 => DataBits::Six,
-            5 => DataBits::Five,
-            _ => DataBits::Eight,
+            8 => Ok(DataBits::Eight),
+            7 => Ok(DataBits::Seven),
+            6 => Ok(DataBits::Six),
+            5 => Ok(DataBits::Five),
+            _ => Err("unknown data bits"),
         }
     }
-    fn match_parity(parity: &str) -> Parity {
+    fn match_parity(parity: &str) -> Result<Parity, &'static str> {
         match parity {
-            "N" | "n" => Parity::None,
-            "O" | "o" => Parity::Odd,
-            "E" | "e" => Parity::Even,
-            _ => Parity::None,
+            "N" | "n" => Ok(Parity::None),
+            "O" | "o" => Ok(Parity::Odd),
+            "E" | "e" => Ok(Parity::Even),
+            _ => Err("unknown parity"),
         }
     }
-    fn match_stop_bits(stop_bits: u8) -> StopBits {
+    fn match_stop_bits(stop_bits: u8) -> Result<StopBits, &'static str> {
         match stop_bits {
-            1 => StopBits::One,
-            2 => StopBits::Two,
-            _ => StopBits::One,
+            1 => Ok(StopBits::One),
+            2 => Ok(StopBits::Two),
+            _ => Err("unknown stop bits"),
         }
     }
-    fn match_flow_control(flow_control: &str) -> FlowControl {
+    fn match_flow_control(flow_control: &str) -> Result<FlowControl, &'static str> {
         match flow_control {
-            "N" | "n" => FlowControl::None,
-            "H" | "h" => FlowControl::Hardware,
-            "S" | "s" => FlowControl::Software,
-            _ => FlowControl::None,
+            "N" | "n" => Ok(FlowControl::None),
+            "H" | "h" => Ok(FlowControl::Hardware),
+            "S" | "s" => Ok(FlowControl::Software),
+            _ => Err("unknown flow control"),
         }
     }
     let path: &str = &sc_args.device;
     let baud_rate: u32 = sc_args.baud_rate;
-    let data_bits: DataBits = match_data_bits(sc_args.data_bits);
-    let parity: Parity = match_parity(sc_args.parity.as_str());
-    let stop_bits: StopBits = match_stop_bits(sc_args.stop_bits);
-    let flow_control: FlowControl = match_flow_control(sc_args.flow_control.as_str());
+    let data_bits: DataBits = match_data_bits(sc_args.data_bits)?;
+    let parity: Parity = match_parity(sc_args.parity.as_str())?;
+    let stop_bits: StopBits = match_stop_bits(sc_args.stop_bits)?;
+    let flow_control: FlowControl = match_flow_control(sc_args.flow_control.as_str())?;
     let timeout: Duration = Duration::from_millis(10);
 
-    serialport::new(path, baud_rate)
+    let p = serialport::new(path, baud_rate)
         .data_bits(data_bits)
         .parity(parity)
         .stop_bits(stop_bits)
         .flow_control(flow_control)
-        .timeout(timeout)
+        .timeout(timeout);
+    Ok((path.into(), p))
 }
 
 fn write_start_screen_msg(screen: &mut impl Write) {
