@@ -92,6 +92,8 @@ Possible values:
 "
     )]
     flow_control: String,
+
+    help: bool,
 }
 
 enum EscapeState {
