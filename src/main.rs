@@ -125,6 +125,7 @@ fn main() {
     ~~ - send the '~' character\n
     ~. - terminate the connection\n
 ");
+        return;
     }
 
     let arg_record = match parse_arguments_into_serialport(&sc_args) {
@@ -177,6 +178,7 @@ fn main() {
             NextStep::None => (),
             NextStep::LoopBreak => break,
             NextStep::Upload if upload => {
+                screen.write_all(b"UPLOAD\r\n").unwrap();
                 let binfile = arg_record.binfile.as_ref().unwrap();
                 upload_to_serial_port(binfile, &mut serial_port)
                     .unwrap_or_else(|e| eprint!("{}upload failed: {}", ToMainScreen, e));
@@ -215,10 +217,10 @@ fn upload_to_serial_port(
     binfile: &str,
     serial_port: &mut Box<dyn SerialPort>,
 ) -> Result<(), Box<dyn Error>> {
-    let data = std::fs::read(binfile)?;
+    let data: Vec<u8> = std::fs::read(binfile)?;
     let ndata = data.len();
     assert!(ndata <= u32::MAX as usize);
-    for i in (0..4).rev() {
+    for i in 0..4 {
         let b = ((ndata >> (i * 8)) & 0xff) as u8;
         let n = serial_port.write(&[b])?;
         assert_eq!(1, n);
@@ -241,6 +243,7 @@ fn read_from_serial_port(
                 let mut etx_count = ETX_COUNT.load(Acquire);
                 for (i, &b) in serial_bytes[..n].iter().enumerate() {
                     if b == 3 {
+                        screen.write_all(b"ETX\r\n").unwrap();
                         etx_count += 1;
                         if etx_count >= 3 {
                             ETX_COUNT.store(0, Release);
@@ -272,7 +275,6 @@ fn read_from_serial_port(
             return NextStep::LoopBreak;
         }
     }
-    unreachable!()
 }
 
 fn read_from_stdin_thread(rx: &Receiver<([u8; 512], usize)>) -> NextStep {
