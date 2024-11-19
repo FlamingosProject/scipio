@@ -1,6 +1,6 @@
 [package]
 name = "serial-console"
-version = "1.1.0"
+version = "1.2.0"
 authors = ["Hendrik Wolff <hendrik.wolff@agdsn.me>"]
 license = "MIT"
 repository = "https://gitlab.com/w0lff/serial-console"
