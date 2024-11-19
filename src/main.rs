@@ -6,7 +6,7 @@ use std::sync::{atomic::{AtomicU8, Ordering::*}, mpsc::{channel, Receiver, TryRe
 use std::thread;
 use std::time::Duration;
 
-use clap::{Parser, builder::{PossibleValuesParser, TypedValueParser}};
+use clap::{ArgAction, Parser, builder::{PossibleValuesParser, TypedValueParser}};
 use serialport::{DataBits, FlowControl, Parity, SerialPort, SerialPortBuilder, StopBits};
 use termion::{screen::IntoAlternateScreen, raw::{IntoRawMode, RawTerminal}};
 use termion::screen::{AlternateScreen, ToMainScreen};
@@ -21,19 +21,24 @@ macro_rules! pvp {
 #[derive(Debug, Parser)]
 #[clap(
     author,
-    after_help = "\
-Escape commands begin with <Enter> and end with one of the following sequences:
-    ~~ - send the '~' character
-    ~. - terminate the connection
-",
-    mut_arg(
-        "help",
-        |a| a.help("Print help information,\nPrint verbose help information with --help")
-    ),
     name = env!("CARGO_BIN_NAME"),
+    disable_help_flag = true,
     version
 )]
 struct SC {
+
+    /// Get the path of a binary to push up
+    #[clap(long, short)]
+    binfile: Option<String>,
+
+    /// Help flag
+    #[clap(long, action = ArgAction::Help)]
+    help: Option<bool>,
+
+    /// Short help flag
+    #[clap(short = 'h', action = ArgAction::HelpShort)]
+    short_help: Option<bool>,
+
     /// Set the device path to a serial port
     device: String,
 
@@ -92,11 +97,6 @@ Possible values:
 "
     )]
     flow_control: String,
-
-    help: bool,
-
-    /// Get the path of a binary to push up
-    binfile: Option<String>,
 }
 
 enum EscapeState {
@@ -118,6 +118,14 @@ enum NextStep {
 
 fn main() {
     let sc_args: SC = SC::parse();
+
+    if sc_args.help.is_some() || sc_args.short_help.is_some() {
+        println!("\n
+    Escape commands begin with <Enter> and end with one of the following sequences:\n
+    ~~ - send the '~' character\n
+    ~. - terminate the connection\n
+");
+    }
 
     let arg_record = match parse_arguments_into_serialport(&sc_args) {
         Ok(a) => a,
@@ -252,7 +260,9 @@ fn read_from_serial_port(
             screen.flush().unwrap();
             return NextStep::None;
         }
-        Err(err) if err.kind() == io::ErrorKind::TimedOut => {}
+        Err(err) if err.kind() == io::ErrorKind::TimedOut => {
+            return NextStep::None;
+        }
         Err(err) if err.kind() == io::ErrorKind::BrokenPipe => {
             eprint!("{}Device disconnected\n\r", ToMainScreen);
             return NextStep::LoopBreak;
