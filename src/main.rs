@@ -23,6 +23,11 @@ macro_rules! pvp {
     author,
     name = env!("CARGO_BIN_NAME"),
     disable_help_flag = true,
+    after_help = "
+    Escape commands begin with <Enter> and end with one of the following sequences:
+    ~~ - send the '~' character
+    ~. - terminate the connection
+",
     version
 )]
 struct SC {
@@ -120,11 +125,7 @@ fn main() {
     let sc_args: SC = SC::parse();
 
     if sc_args.help.is_some() || sc_args.short_help.is_some() {
-        println!("\n
-    Escape commands begin with <Enter> and end with one of the following sequences:\n
-    ~~ - send the '~' character\n
-    ~. - terminate the connection\n
-");
+        println!();
         return;
     }
 
