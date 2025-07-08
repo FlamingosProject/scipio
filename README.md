@@ -1,9 +1,19 @@
 # Scip - Serial Console Interfacing Program
+
 A command line tool to communicate with a serial console written in [Rust](https://rust-lang.org)
 
 ## Installation
+
+From `crates.io`:
+
 ```bash
 cargo install serial-console
+```
+
+From this repo:
+
+```bash
+cargo install --path .
 ```
 
 ## Usage
@@ -33,13 +43,23 @@ For more verbose help information and parameter suggestions add the `--help` opt
 scip --help
 ```
 
-## Binfile support
+## Minipush
 
-This version of `scip` supports the upload protocol used by
-<https://github.com/rust-embedded/rust-raspberrypi-OS-tutorials/>
-for uploading kernel images to a Raspberry Pi: this is
-intended as a replacement for the Ruby `minipush` in the
-tutorials. See the tutorial source code for details.
+This version of Scip supports the "minipush" file upload
+protocol used by
+<https://github.com/rust-embedded/rust-raspberrypi-OS-tutorials>
+for uploading kernel images to a Raspberry Pi. Scip can thus
+as a replacement for the Ruby `minipush` there.
+
+The minipush protocol is as follows:
+
+* The client initiates a file transfer from the host by
+  sending three ASCII ETX characters in a row.
+
+* The host responds by sending the 32-bit unsigned transfer
+  length.
+  
+* The host then sends the file data.
 
 ## Examples
 ```bash
