@@ -8,8 +8,7 @@ use std::time::Duration;
 
 use clap::{ArgAction, Parser, builder::{PossibleValuesParser, TypedValueParser}};
 use serialport::{DataBits, FlowControl, Parity, SerialPort, SerialPortBuilder, StopBits};
-use termion::{screen::IntoAlternateScreen, raw::{IntoRawMode, RawTerminal}};
-use termion::screen::{AlternateScreen, ToMainScreen};
+use termion::raw::{IntoRawMode, RawTerminal};
 
 // clap 4 PossibleValueParser builder.
 macro_rules! pvp {
@@ -163,7 +162,7 @@ fn main() {
     };
 
     let mut stdin = stdin();
-    let mut screen = stdout().into_raw_mode().unwrap().into_alternate_screen().unwrap();
+    let mut screen = stdout().into_raw_mode().unwrap();
 
     write_start_screen_msg(&mut screen);
 
@@ -188,7 +187,7 @@ fn main() {
                 }
                 let binfile = arg_record.binfile.as_ref().unwrap();
                 upload_to_serial_port(binfile, &mut serial_port)
-                    .unwrap_or_else(|e| eprint!("{}upload failed: {}", ToMainScreen, e));
+                    .unwrap_or_else(|e| eprint!("upload failed: {}", e));
                 if sc_args.verbose {
                     screen.write_all(b"DONE.\r\n").unwrap();
                 }
@@ -241,7 +240,7 @@ fn upload_to_serial_port(
 
 fn read_from_serial_port(
     serial_port: &mut Box<dyn SerialPort>,
-    screen: &mut AlternateScreen<RawTerminal<io::Stdout>>,
+    screen: &mut RawTerminal<io::Stdout>,
     upload: bool,
 ) -> NextStep {
     static ETX_COUNT: AtomicU8 = AtomicU8::new(0);
@@ -277,11 +276,11 @@ fn read_from_serial_port(
             return NextStep::None;
         }
         Err(err) if err.kind() == io::ErrorKind::BrokenPipe => {
-            eprint!("{}Device disconnected\n\r", ToMainScreen);
+            eprint!("Device disconnected\n\r");
             return NextStep::LoopBreak;
         }
         Err(err) => {
-            eprint!("{}{}\n\r", ToMainScreen, err);
+            eprint!("{}\n\r", err);
             return NextStep::LoopBreak;
         }
     }
@@ -292,7 +291,7 @@ fn read_from_stdin_thread(rx: &Receiver<([u8; 512], usize)>) -> NextStep {
         Ok(data) => NextStep::Data(Box::new(data)),
         Err(TryRecvError::Empty) => NextStep::LoopContinue,
         Err(TryRecvError::Disconnected) => {
-            eprint!("{}Error: Stdin reading thread stopped.\n\r", ToMainScreen);
+            eprint!("Error: Stdin reading thread stopped.\n\r");
             NextStep::LoopBreak
         }
     }
@@ -338,7 +337,7 @@ fn write_to_serial_port(serial_port: &mut Box<dyn SerialPort>, data: &[u8]) -> N
         Ok(_) => {}
         Err(err) if err.kind() == io::ErrorKind::TimedOut => {}
         Err(err) => {
-            eprint!("{}{}\n\r", ToMainScreen, err);
+            eprint!("{}\n\r", err);
             return NextStep::LoopBreak;
         }
     }
